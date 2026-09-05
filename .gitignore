@@ -1,0 +1,12 @@
+# build artifacts
+*.zip
+
+# python
+__pycache__/
+*.pyc
+.venv/
+
+# aws / local secrets - never commit these
+.env
+*.pem
+credentials
