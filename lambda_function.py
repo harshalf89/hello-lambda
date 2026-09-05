@@ -15,5 +15,5 @@ def lambda_handler(event, context):
     name = event.get("name", "world") if isinstance(event, dict) else "world"
     return {
         "statusCode": 200,
-        "body": f"Hello, {name}! Deployed by my pipeline. [env: {APP_ENV}]",
+        "body": f"Hi {name}! This is release v2, promoted dev -> staging -> prod. [env: {APP_ENV}]",
     }
