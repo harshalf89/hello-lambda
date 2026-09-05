@@ -1,29 +1,48 @@
-# What: deploy hello-lambda to AWS on every push to main.
-# How:  zip the code, then call AWS to replace the function's code.
+# Branch-per-environment deploy.
+#
+#   push to develop  ->  deploys hello-lambda-dev      (auto)
+#   push to staging  ->  deploys hello-lambda-staging  (auto)
+#   push to main     ->  deploys hello-lambda-prod     (waits for approval,
+#                                                       because the "prod"
+#                                                       GitHub Environment
+#                                                       has a required reviewer)
+#
+# "Promoting" code = opening a PR from one branch to the next and merging it.
 
 name: Deploy to Lambda
 
-# When this workflow runs
 on:
   push:
-    branches: [main]
-  workflow_dispatch:      # also lets you run it manually from the Actions tab
+    branches: [develop, staging, main]
+  workflow_dispatch:
 
-# Sensible defaults
 env:
   AWS_REGION: us-east-1
-  FUNCTION_NAME: hello-lambda
 
 jobs:
   deploy:
-    runs-on: ubuntu-latest      # GitHub gives us a fresh Linux VM
+    runs-on: ubuntu-latest
+
+    # Ties this run to a GitHub "Environment". Protection rules on that
+    # environment (e.g. required reviewer on prod) gate the job automatically.
+    environment: ${{ fromJSON('{"develop":"dev","staging":"staging","main":"prod"}')[github.ref_name] }}
 
     steps:
-      # 1. Get the repo's code onto the VM
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # 2. Authenticate to AWS using the repo secrets (the deployer user's keys)
+      # Map the branch that was pushed to the Lambda function to update.
+      - name: Resolve target function
+        id: t
+        run: |
+          case "${{ github.ref_name }}" in
+            develop) echo "fn=hello-lambda-dev"     >> "$GITHUB_OUTPUT" ;;
+            staging) echo "fn=hello-lambda-staging" >> "$GITHUB_OUTPUT" ;;
+            main)    echo "fn=hello-lambda-prod"    >> "$GITHUB_OUTPUT" ;;
+            *) echo "Unsupported branch: ${{ github.ref_name }}"; exit 1 ;;
+          esac
+          echo "Target: $(cat "$GITHUB_OUTPUT")"
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -31,27 +50,23 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      # 3. Package the function code into a zip
       - name: Build zip
         run: zip -r function.zip lambda_function.py
 
-      # 4. Upload the new code to the existing Lambda function
-      - name: Deploy to Lambda
+      - name: Deploy to ${{ steps.t.outputs.fn }}
         run: |
           aws lambda update-function-code \
-            --function-name "$FUNCTION_NAME" \
+            --function-name "${{ steps.t.outputs.fn }}" \
             --zip-file fileb://function.zip \
             --publish
 
-      # 5. Wait until AWS finishes applying the update
       - name: Wait for update to finish
-        run: aws lambda wait function-updated --function-name "$FUNCTION_NAME"
+        run: aws lambda wait function-updated --function-name "${{ steps.t.outputs.fn }}"
 
-      # 6. Smoke test: invoke the function and print what it returned
       - name: Smoke test
         run: |
           aws lambda invoke \
-            --function-name "$FUNCTION_NAME" \
+            --function-name "${{ steps.t.outputs.fn }}" \
             --payload '{"name":"github-actions"}' \
             --cli-binary-format raw-in-base64-out \
             response.json
