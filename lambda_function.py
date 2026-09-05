@@ -11,5 +11,5 @@ def lambda_handler(event, context):
     name = event.get("name", "world") if isinstance(event, dict) else "world"
     return {
         "statusCode": 200,
-        "body": f"Hello, {name}! This ran on AWS Lambda.",
+        "body": f"Hello, {name}! Deployed by my pipeline.",
     }
